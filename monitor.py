@@ -141,8 +141,6 @@ def alert_for(m, prev, name, sid, A, rival_sids):
         return
     icon = {"W": "✅", "L": "❌", "D": "➖"}[m["result"]]
     fields = []
-    if m["me"]["lp"] is not None:
-        fields.append({"name": "LP (avant)", "value": f"{m['me']['lp']:,}".replace(",", " "), "inline": True})
     if m["me"]["mr"] is not None:
         fields.append({"name": "MR (avant)", "value": str(m["me"]["mr"]), "inline": True})
     desc = f"{m['me']['char']} vs {m['opp']['char']} · {m['score'][0]}-{m['score'][1]} · {m['mode']}\n" + "\n".join(reasons)

@@ -112,7 +112,6 @@ function renderProfile() {
   $("#profile").innerHTML = `
     <div class="card name"><div class="k">Joueur</div><div class="v"><a href="${BUCKLER}${esc(S.sid)}" target="_blank" rel="noopener">${esc(name)}</a></div><div class="s">${esc(p.name && p.name !== name ? p.name + " · " : "")}CFN ${esc(S.sid)}</div></div>
     <div class="card"><div class="k">Perso principal</div><div class="v">${esc(main || "—")}</div><div class="s">${esc(leagueName(ci.rank))}</div></div>
-    <div class="card"><div class="k">League Points</div><div class="v">${ci.lp != null ? ci.lp.toLocaleString("fr-FR") : "—"}</div><div class="s">${esc(main || "")}</div></div>
     <div class="card"><div class="k">Master Rating</div><div class="v">${ci.mr ?? "—"}</div><div class="s">${esc(main || "")}</div></div>
     <div class="card"><div class="k">Dernières 24 h</div><div class="v"><span class="up">${l24.w}V</span> - <span class="down">${l24.l}D</span></div><div class="s">${l24.n} match(s)</div></div>
     <div class="card"><div class="k">Winrate enregistré</div><div class="v">${pct(w, m.length)}%</div><div class="s">${m.length} match(s)</div></div>`;
@@ -157,10 +156,6 @@ function bindControls() {
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   // Progression
   $("#pg-char").addEventListener("change", () => { S.metric = null; renderProgress(); });
-  $("#pg-metric").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    S.metric = b.dataset.metric; renderProgress();
-  });
   $("#pg-start").addEventListener("change", renderProgress);
   $("#pg-end").addEventListener("change", renderProgress);
   $("#pg-quick").addEventListener("click", (e) => {
@@ -226,10 +221,7 @@ function renderProgress() {
   const char = $("#pg-char").value;
   const cur = (S.data.profile?.chars || {})[char] || {};
   const ranked = S.data.matches.filter((m) => m.mode === "Ranked" && m.me.char === char).slice().reverse();
-  const hasMr = ranked.some((m) => m.me.mr != null) || cur.mr != null;
-  if (!S.metric) S.metric = hasMr ? "mr" : "lp";
-  $$("#pg-metric button").forEach((b) => b.classList.toggle("active", b.dataset.metric === S.metric));
-  const key = S.metric;
+  const key = "mr";
   const start = $("#pg-start").value ? new Date($("#pg-start").value + "T00:00:00").getTime() / 1000 : -Infinity;
   const end = $("#pg-end").value ? new Date($("#pg-end").value + "T23:59:59").getTime() / 1000 : Infinity;
 
@@ -259,23 +251,24 @@ function drawChart(pts, key) {
   const tip = $("#tip");
   tip.hidden = true;
   if (pts.length < 2) {
-    svg.innerHTML = `<text class="empty" x="${W / 2}" y="${H / 2}" text-anchor="middle">${key === "mr" ? "Pas de Master Rating sur cette période (le MR n'existe qu'en Master)." : "Pas assez de matchs classés sur cette période."}</text>`;
+    svg.innerHTML = `<text class="empty" x="${W / 2}" y="${H / 2}" text-anchor="middle">Pas assez de matchs Master classés sur cette période (le MR n'existe qu'en Master).</text>`;
     svg.onmousemove = null;
     return;
   }
   const pad = { l: 52, r: 16, t: 14, b: 28 };
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
-  let v0 = Math.min(...pts.map((p) => p.v)), v1 = Math.max(...pts.map((p) => p.v));
-  const span = Math.max(v1 - v0, key === "mr" ? 20 : 200);
-  v0 -= span * 0.08; v1 += span * 0.08;
+  // échelle MR : plancher fixe à 1500 (début de Master), aucun plafond (suit le meilleur MR)
+  const v0 = 1500;
+  let v1 = Math.max(...pts.map((p) => p.v), v0 + 50);
+  v1 += (v1 - v0) * 0.08;
   // abscisse par index (comme un graphe de progression match par match) -> lisible même avec des pauses
   const n = pts.length;
   const x = (i) => pad.l + (i / (n - 1)) * (W - pad.l - pad.r);
-  const y = (v) => pad.t + (1 - (v - v0) / (v1 - v0)) * (H - pad.t - pad.b);
-  const color = key === "mr" ? "var(--mr)" : "var(--lp)";
+  const y = (v) => pad.t + (1 - (Math.max(v, v0) - v0) / (v1 - v0)) * (H - pad.t - pad.b);
+  const color = "var(--mr)";
   let g = "";
-  for (let k = 0; k <= 4; k++) {
-    const v = v0 + ((v1 - v0) * k) / 4;
+  const step = [10, 25, 50, 100, 250, 500, 1000].find((s) => s >= (v1 - v0) / 4) || 2000;
+  for (let v = v0; v <= v1; v += step) {
     g += `<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${Math.round(v).toLocaleString("fr-FR")}</text>`;
   }
   const ticks = Math.min(6, n);
@@ -317,12 +310,11 @@ window.addEventListener("resize", () => { if (S.tab === "progress" && S.data) re
 
 // ------------------------------------------------------------------ historique
 function ratingCell(m) {
-  const d = m.me.mrDelta ?? m.me.lpDelta;
-  const after = m.me.mrAfter ?? m.me.lpAfter ?? m.me.mr ?? m.me.lp;
-  const unit = m.me.mr != null ? "MR" : m.me.lp != null ? "LP" : "";
+  const d = m.me.mrDelta;
+  const after = m.me.mrAfter ?? m.me.mr;
   if (after == null) return `<span class="muted">—</span>`;
   const ds = d == null ? "" : ` <span class="${d > 0 ? "up" : d < 0 ? "down" : "muted"}">${d > 0 ? "+" : ""}${d}</span>`;
-  return `${after.toLocaleString("fr-FR")} <span class="muted">${unit}</span>${ds}`;
+  return `${after.toLocaleString("fr-FR")} <span class="muted">MR</span>${ds}`;
 }
 
 function rowHtml(m, rs) {
@@ -332,7 +324,7 @@ function rowHtml(m, rs) {
     <td>${fmtDate(m.t)}</td>
     <td><span class="badge ${m.result}">${label}</span></td>
     <td>${esc(m.me.char)}${m.me.input ? ` <span class="muted">${esc(m.me.input)}</span>` : ""}</td>
-    <td><a href="#" data-opp="${esc(m.opp.sid)}" title="Voir le face-à-face">${esc(m.opp.name)}</a>${isRival ? '<span class="tag">RIVAL</span>' : ""} <span class="muted">${esc(m.opp.char)}${m.opp.mr ? " · " + m.opp.mr + " MR" : m.opp.lp != null ? " · " + m.opp.lp.toLocaleString("fr-FR") + " LP" : ""}</span>
+    <td><a href="#" data-opp="${esc(m.opp.sid)}" title="Voir le face-à-face">${esc(m.opp.name)}</a>${isRival ? '<span class="tag">RIVAL</span>' : ""} <span class="muted">${esc(m.opp.char)}${m.opp.mr ? " · " + m.opp.mr + " MR" : ""}</span>
       <a href="${BUCKLER}${esc(m.opp.sid)}" target="_blank" rel="noopener" class="muted" title="Profil Buckler">↗</a></td>
     <td>${m.score[0]} - ${m.score[1]}</td>
     <td class="muted">${esc(m.mode)}</td>
@@ -405,7 +397,7 @@ function renderRivals() {
     <div class="chips">${byChar((m) => m.opp.char).map(([c, s]) => `<span class="chip">Contre ${esc(c)} : ${s.w}/${s.n} (${pct(s.w, s.n)}%)</span>`).join("")}</div>
     <div class="chips">${byChar((m) => m.me.char).map(([c, s]) => `<span class="chip">Avec ${esc(c)} : ${s.w}/${s.n} (${pct(s.w, s.n)}%)</span>`).join("")}</div>
     <div class="table-wrap"><table class="matches">
-      <thead><tr><th>Date</th><th>Rés.</th><th>Perso</th><th>Adversaire</th><th>Score</th><th>Mode</th><th class="num">LP / MR</th></tr></thead>
+      <thead><tr><th>Date</th><th>Rés.</th><th>Perso</th><th>Adversaire</th><th>Score</th><th>Mode</th><th class="num">MR</th></tr></thead>
       <tbody>${h.list.slice(0, 300).map((m) => rowHtml(m, rs)).join("")}</tbody>
     </table></div>`;
 }
