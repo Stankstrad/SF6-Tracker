@@ -45,7 +45,7 @@ function render(){
   draw("c1",pts,"lp",getComputedStyle(document.documentElement).getPropertyValue("--lp"));
   draw("c2",pts,"mr",getComputedStyle(document.documentElement).getPropertyValue("--mr"));
 }
-fetch("history.json").then(r=>r.json()).then(d=>{H=d;
+fetch("https://raw.githubusercontent.com/Stankstrad/SF6-Tracker/main/history.json?"+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw 0;return r.json()}).catch(()=>fetch("history.json",{cache:"no-store"}).then(r=>r.json())).then(d=>{H=d;
   $("p").innerHTML=Object.keys(H).map(n=>`<option>${n}</option>`).join("");render()})
  .catch(()=>{document.querySelector("main").insertAdjacentHTML("beforeend",'<p class="empty">history.json introuvable : lance monitor.py dans le même dossier.</p>')});
 ["p","a","b"].forEach(i=>$(i).addEventListener("input",render));
