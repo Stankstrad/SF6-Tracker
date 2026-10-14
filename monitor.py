@@ -128,22 +128,16 @@ def make_profile(matches, name):
 
 
 # ------------------------------------------------------------------ alertes
-def alert_for(m, prev, name, sid, A, rivals):
-    ranked = m["mode"] == "Ranked"
-    if A["ranked_only"] and not ranked:
-        return
-    is_rival = m["opp"]["sid"] in rivals
-    wanted = (m["result"] == "W" and A["wins"]) or (m["result"] == "L" and A["losses"]) \
-        or (m["result"] == "D" and (A["wins"] or A["losses"])) or (is_rival and A["rivals"])
-    notes = []
-    if A["milestones"] and ranked and prev:
-        a, b = m["me"].get("mr"), prev["me"].get("mr")
-        if a and b and a // 100 > b // 100:
-            notes.append(f"🏆 Cap des {a // 100 * 100} MR franchi")
-        ra, rb = m["me"].get("rank"), prev["me"].get("rank")
-        if isinstance(ra, int) and isinstance(rb, int) and ra > rb:
-            notes.append("⬆️ Montée de ligue")
-    if not wanted and not notes:
+def alert_for(m, prev, name, sid, A, rival_sids):
+    """Alerte seulement : (1) premier match classé après une pause d'au moins `ranked_gap_minutes`,
+    ou (2) match contre un rival (tous modes). `prev` = match classé précédent du joueur (tous persos)."""
+    reasons = []
+    if m["mode"] == "Ranked" and (prev is None or m["t"] - prev["t"] >= A["ranked_gap_minutes"] * 60):
+        reasons.append(f"🆕 Premier match classé (pas de ranked depuis {A['ranked_gap_minutes']} min ou plus)")
+    is_rival = m["opp"]["sid"] in rival_sids
+    if is_rival and A["rivals"]:
+        reasons.append("⭐ Match contre un rival")
+    if not reasons:
         return
     icon = {"W": "✅", "L": "❌", "D": "➖"}[m["result"]]
     fields = []
@@ -151,10 +145,8 @@ def alert_for(m, prev, name, sid, A, rivals):
         fields.append({"name": "LP (avant)", "value": f"{m['me']['lp']:,}".replace(",", " "), "inline": True})
     if m["me"]["mr"] is not None:
         fields.append({"name": "MR (avant)", "value": str(m["me"]["mr"]), "inline": True})
-    desc = f"{m['me']['char']} vs {m['opp']['char']} · {m['score'][0]}-{m['score'][1]} · {m['mode']}"
-    if notes:
-        desc += "\n" + "\n".join(notes)
-    discord(f"{icon} **{name}** {'⭐ (rival) ' if is_rival else ''}a joué un match",
+    desc = f"{m['me']['char']} vs {m['opp']['char']} · {m['score'][0]}-{m['score'][1]} · {m['mode']}\n" + "\n".join(reasons)
+    discord(f"{icon} **{name}** a joué un match",
             {"title": f"{name} vs {m['opp']['name']}", "description": desc, "fields": fields,
              "url": f"{BASE}/en/profile/{sid}/battlelog"})
     time.sleep(1)
@@ -167,7 +159,7 @@ def dump(path, obj):
 
 def main():
     C = json.loads(Path("config.json").read_text())
-    A = {"wins": True, "losses": True, "rivals": True, "milestones": True, "ranked_only": False, **C.get("alerts", {})}
+    A = {"rivals": True, "ranked_gap_minutes": 30, **C.get("alerts", {})}
     max_pages, keep = C.get("max_pages", 10), C.get("max_matches_stored", 5000)
     rivals = [{"sid": str(r["sid"]), "name": r.get("name", "")} for r in C.get("rivals", [])]
     rival_sids = {r["sid"] for r in rivals}
@@ -204,7 +196,7 @@ def main():
                 ids = {m["id"] for m in new}
                 for m in list(reversed([x for x in matches if x["id"] in ids]))[-10:]:
                     i = matches.index(m)
-                    prev = next((x for x in matches[i + 1:] if x["mode"] == "Ranked" and x["me"]["char"] == m["me"]["char"]), None)
+                    prev = next((x for x in matches[i + 1:] if x["mode"] == "Ranked"), None)
                     try:
                         alert_for(m, prev, name, sid, A, rival_sids)
                     except Exception as e:
