@@ -3,7 +3,7 @@
 et met à jour history.json. Conçu pour tourner via GitHub Actions.
 Secrets lus dans l'environnement : DISCORD_WEBHOOK, BUCKLER_COOKIE.
 NON TESTÉ contre le vrai site : la structure JSON de Capcom peut changer."""
-import json, os, re, time, urllib.request
+import json, os, re, time, urllib.request, urllib.error
 from pathlib import Path
 
 CFG = json.loads(Path("config.json").read_text())
@@ -11,11 +11,21 @@ WEBHOOK = os.environ["DISCORD_WEBHOOK"]
 COOKIE = os.environ["BUCKLER_COOKIE"]
 HIST, SEEN = Path("history.json"), Path("seen.json")
 BASE = "https://www.streetfighter.com/6/buckler"
-UA = {"User-Agent": "Mozilla/5.0", "Cookie": COOKIE}
+UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.streetfighter.com/6/buckler",
+    "Cookie": COOKIE.strip(),
+}
 
 def get(url):
-    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20) as r:
-        return r.read().decode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="ignore")[:300].replace("\n", " ")
+        raise RuntimeError(f"HTTP {e.code} | server={e.headers.get('server')} | {body}")
 
 def battlelog(sid, pages=1):
     """Récupère jusqu'à `pages` pages (10 matchs/page, Capcom garde ~100 matchs max)."""
