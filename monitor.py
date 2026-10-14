@@ -219,4 +219,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # LOOP_SECONDS > 0 : le script repasse toutes les POLL_SECONDS pendant cette durée (alertes plus rapides).
+    # L'état est relu depuis data/ à chaque tour, donc aucune alerte en double.
+    loop, poll = int(os.environ.get("LOOP_SECONDS", 0)), int(os.environ.get("POLL_SECONDS", 45))
+    end = time.time() + loop
+    while True:
+        main()
+        if time.time() + poll >= end:
+            break
+        time.sleep(poll)
