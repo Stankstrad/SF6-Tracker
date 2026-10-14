@@ -244,6 +244,15 @@ function renderProgress() {
     <div class="card"><div class="k">Min ${key.toUpperCase()}</div><div class="v">${vals.length ? Math.min(...vals).toLocaleString("fr-FR") : "—"}</div><div class="s">sur la période</div></div>`;
 }
 
+// Rangs Master (seuils MR officiels : 1500 / 1600 / 1700 / 1800 / Legend 2000). Couleurs approximatives : à ajuster ici.
+const MR_TIERS = [
+  { min: 1500, name: "Master", color: "#8b5cf6" },
+  { min: 1600, name: "High Master", color: "#ec4899" },
+  { min: 1700, name: "Grand Master", color: "#f97316" },
+  { min: 1800, name: "Ultimate Master", color: "#eab308" },
+  { min: 2000, name: "Legend", color: "#22d3ee" },
+];
+
 function drawChart(pts, key) {
   const svg = $("#chart");
   const W = svg.clientWidth || 800, H = svg.clientHeight || 360;
@@ -257,19 +266,24 @@ function drawChart(pts, key) {
   }
   const pad = { l: 52, r: 16, t: 14, b: 28 };
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
-  // échelle MR : plancher fixe à 1500 (début de Master), aucun plafond (suit le meilleur MR)
+  // échelle MR : plancher fixe à 1500, graduations tous les 100 (toujours 1500-1800 visibles), aucun plafond
   const v0 = 1500;
-  let v1 = Math.max(...pts.map((p) => p.v), v0 + 50);
-  v1 += (v1 - v0) * 0.08;
+  const v1 = Math.max(1900, Math.ceil((Math.max(...pts.map((p) => p.v)) + 1) / 100) * 100);
   // abscisse par index (comme un graphe de progression match par match) -> lisible même avec des pauses
   const n = pts.length;
   const x = (i) => pad.l + (i / (n - 1)) * (W - pad.l - pad.r);
   const y = (v) => pad.t + (1 - (Math.max(v, v0) - v0) / (v1 - v0)) * (H - pad.t - pad.b);
-  const color = "var(--mr)";
+  const color = "var(--text)";
   let g = "";
-  const step = [10, 25, 50, 100, 250, 500, 1000].find((s) => s >= (v1 - v0) / 4) || 2000;
-  for (let v = v0; v <= v1; v += step) {
-    g += `<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${Math.round(v).toLocaleString("fr-FR")}</text>`;
+  // fond : couleurs des rangs Master (approximatives, modifiables dans MR_TIERS)
+  MR_TIERS.forEach((t, i) => {
+    const top = Math.min(v1, i + 1 < MR_TIERS.length ? MR_TIERS[i + 1].min : v1), bot = Math.max(v0, t.min);
+    if (top <= bot) return;
+    g += `<rect x="${pad.l}" y="${y(top)}" width="${W - pad.l - pad.r}" height="${y(bot) - y(top)}" fill="${t.color}" opacity=".14"/>` +
+         `<text x="${W - pad.r - 6}" y="${y(top) + 14}" text-anchor="end" font-size="11" font-weight="700" fill="${t.color}">${t.name}</text>`;
+  });
+  for (let v = v0; v <= v1; v += 100) {
+    g += `<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${v.toLocaleString("fr-FR")}</text>`;
   }
   const ticks = Math.min(6, n);
   for (let k = 0; k < ticks; k++) {
@@ -288,7 +302,7 @@ function drawChart(pts, key) {
         return `<circle cx="${x(i)}" cy="${y(p.v)}" r="${p.current ? 4.5 : 3}" fill="${c}"${ring}/>`;
       }).join("")
     : "";
-  svg.innerHTML = `${g}<path d="${area}" fill="${color}" opacity=".08"/><path d="${path}" fill="none" stroke="${color}" stroke-width="2"/>${dots}<line id="cross" y1="${pad.t}" y2="${H - pad.b}" stroke="var(--muted)" stroke-dasharray="3 3" opacity="0"/>`;
+  svg.innerHTML = `${g}<path d="${area}" fill="${color}" opacity=".05"/><path d="${path}" fill="none" stroke="${color}" stroke-width="2"/>${dots}<line id="cross" y1="${pad.t}" y2="${H - pad.b}" stroke="var(--muted)" stroke-dasharray="3 3" opacity="0"/>`;
   svg.onmousemove = (e) => {
     const r = svg.getBoundingClientRect();
     const mx = ((e.clientX - r.left) / r.width) * W;
