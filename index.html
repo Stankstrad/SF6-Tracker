@@ -1,52 +1,82 @@
 <!doctype html>
-<html lang="fr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SF6 Tracker</title>
-<style>
-:root{--bg:#f6f5f2;--fg:#1c1b1a;--mut:#77736c;--lp:#d9541e;--mr:#1f6f8b;--card:#fff;--line:#ddd8cf}
-@media(prefers-color-scheme:dark){:root{--bg:#16181d;--fg:#ecebe7;--mut:#9a9aa3;--lp:#ff7a45;--mr:#4cc3e6;--card:#1f2229;--line:#343842}}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 "Barlow Condensed",system-ui,sans-serif}
-main{max-width:900px;margin:0 auto;padding:24px 16px}
-h1{font-size:2.2rem;margin:0 0 16px;letter-spacing:.02em}
-.bar{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-select,input{background:var(--card);color:var(--fg);border:1px solid var(--line);padding:8px 10px;font:inherit;border-radius:4px}
-label{color:var(--mut);display:flex;flex-direction:column;font-size:.85rem}
-.chart{background:var(--card);border:1px solid var(--line);padding:12px;margin-bottom:16px;border-radius:4px}
-.chart h2{margin:0 0 6px;font-size:1.1rem}
-svg{width:100%;height:220px;display:block}
-.empty{color:var(--mut);padding:40px 0;text-align:center}
-</style></head><body><main>
-<h1>SF6 Tracker</h1>
-<div class="bar">
- <label>Joueur<select id="p"></select></label>
- <label>Début<input type="date" id="a"></label>
- <label>Fin<input type="date" id="b"></label>
-</div>
-<div class="chart"><h2>League Points</h2><svg id="c1"></svg></div>
-<div class="chart"><h2>Master Rating</h2><svg id="c2"></svg></div>
-<script>
-let H={};
-const $=id=>document.getElementById(id);
-function draw(svg,pts,key,color){
-  const W=800,Hh=220,m=36,el=$(svg);el.setAttribute("viewBox",`0 0 ${W} ${Hh}`);
-  pts=pts.filter(d=>d[key]!=null&&d[key]>0);
-  if(pts.length<2){el.innerHTML=`<text x="${W/2}" y="${Hh/2}" text-anchor="middle" fill="var(--mut)">Pas assez de données</text>`;return}
-  const xs=pts.map(d=>d.t),ys=pts.map(d=>d[key]);
-  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys)||1;
-  const X=t=>m+(t-x0)/(x1-x0||1)*(W-2*m), Y=v=>Hh-m-(v-y0)/(y1-y0||1)*(Hh-2*m);
-  el.innerHTML=`<polyline fill="none" stroke="${color}" stroke-width="2.5" points="${pts.map(d=>X(d.t)+","+Y(d[key])).join(" ")}"/>
-  <text x="4" y="${Y(y1)+4}" fill="var(--mut)" font-size="12">${y1}</text>
-  <text x="4" y="${Y(y0)+4}" fill="var(--mut)" font-size="12">${y0}</text>`;
-}
-function render(){
-  const name=$("p").value,a=$("a").value?Date.parse($("a").value)/1000:0,
-        b=$("b").value?Date.parse($("b").value)/1000+86400:Infinity;
-  const pts=(H[name]||[]).filter(d=>d.t>=a&&d.t<=b);
-  draw("c1",pts,"lp",getComputedStyle(document.documentElement).getPropertyValue("--lp"));
-  draw("c2",pts,"mr",getComputedStyle(document.documentElement).getPropertyValue("--mr"));
-}
-fetch("https://raw.githubusercontent.com/Stankstrad/SF6-Tracker/main/history.json?"+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw 0;return r.json()}).catch(()=>fetch("history.json",{cache:"no-store"}).then(r=>r.json())).then(d=>{H=d;
-  $("p").innerHTML=Object.keys(H).map(n=>`<option>${n}</option>`).join("");render()})
- .catch(()=>{document.querySelector("main").insertAdjacentHTML("beforeend",'<p class="empty">history.json introuvable : lance monitor.py dans le même dossier.</p>')});
-["p","a","b"].forEach(i=>$(i).addEventListener("input",render));
-</script></main></body></html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SF6 Tracker</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">SF6</span><span id="site-title">Tracker</span></div>
+    <nav id="players" class="players" aria-label="Joueurs"></nav>
+    <div class="updated" id="updated"></div>
+  </header>
+
+  <main>
+    <section id="profile" class="profile"></section>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="progress" class="active">Progression</button>
+      <button role="tab" data-tab="history">Historique</button>
+      <button role="tab" data-tab="rivals">Rivaux</button>
+    </div>
+
+    <!-- Progression -->
+    <section id="tab-progress" class="panel">
+      <div class="controls">
+        <label>Personnage <select id="pg-char"></select></label>
+        <div class="seg" id="pg-metric">
+          <button data-metric="lp">League Points</button>
+          <button data-metric="mr">Master Rating</button>
+        </div>
+        <label>Début <input type="date" id="pg-start"></label>
+        <label>Fin <input type="date" id="pg-end"></label>
+        <div class="seg" id="pg-quick">
+          <button data-days="1">24 h</button>
+          <button data-days="7">7 j</button>
+          <button data-days="30">30 j</button>
+          <button data-days="0">Tout</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><svg id="chart" role="img" aria-label="Évolution"></svg><div id="tip" class="tip" hidden></div>
+        <div class="legend"><span><i style="background:var(--win)"></i>Victoire</span><span><i style="background:var(--loss)"></i>Défaite</span><span><i class="ring"></i>Contre un rival</span><span class="muted">Valeur avant chaque match ; dernier point = valeur actuelle</span></div></div>
+      <div class="stats-row" id="pg-stats"></div>
+    </section>
+
+    <!-- Historique -->
+    <section id="tab-history" class="panel" hidden>
+      <div class="controls">
+        <label>Personnage <select id="hi-char"></select></label>
+        <label>Mode <select id="hi-mode">
+          <option value="">Tous</option><option>Ranked</option><option>Casual</option><option>Room</option><option>Hub</option>
+        </select></label>
+        <label>Adversaire <input type="search" id="hi-search" placeholder="Pseudo…"></label>
+        <label class="check"><input type="checkbox" id="hi-rivals"> Rivaux seulement</label>
+      </div>
+      <div class="table-wrap">
+        <table class="matches">
+          <thead><tr><th>Date</th><th>Rés.</th><th>Perso</th><th>Adversaire</th><th>Score</th><th>Mode</th><th class="num">LP / MR</th></tr></thead>
+          <tbody id="hi-body"></tbody>
+        </table>
+      </div>
+      <button id="hi-more" class="more" hidden>Afficher plus</button>
+    </section>
+
+    <!-- Rivaux -->
+    <section id="tab-rivals" class="panel" hidden>
+      <div class="controls">
+        <label class="grow">Ajouter un adversaire (sur ce navigateur)
+          <input list="opp-list" id="rv-add" placeholder="Pseudo ou ID CFN d'un adversaire déjà affronté">
+          <datalist id="opp-list"></datalist>
+        </label>
+        <a id="rv-edit" class="link" target="_blank" rel="noopener" hidden>Modifier les rivaux du serveur ↗</a>
+      </div>
+      <div id="rv-grid" class="rv-grid"></div>
+      <div id="rv-detail"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
