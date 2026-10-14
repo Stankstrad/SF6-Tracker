@@ -2,7 +2,7 @@
 """Collecte le battle log Buckler (SF6), alerte sur Discord et écrit data/ pour le site.
 Secrets (variables d'environnement) : DISCORD_WEBHOOK, BUCKLER_COOKIE.
 Lit config.json (players, rivals, alerts, max_pages, max_matches_stored, site_title)."""
-import json, os, re, time, urllib.request, urllib.error
+import json, os, re, subprocess, time, urllib.request, urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -207,6 +207,7 @@ def main():
         print(f"[{name}] {len(reps)} matchs lus, {len(new)} nouveaux, {len(matches)} stockés")
         day = [m for m in matches if m["t"] >= now - 86400]
         index_players.append({"sid": sid, "name": name, "display": name,
+                              "last_t": matches[0]["t"] if matches else None,
                               "last24h": {"w": sum(m["result"] == "W" for m in day),
                                           "l": sum(m["result"] == "L" for m in day), "n": len(day)}})
 
@@ -218,6 +219,24 @@ def main():
         dump(ip, {**idx, "updated_at": datetime.now(timezone.utc).isoformat()})
 
 
+def git_push():
+    """Avec GIT_PUSH=1 (dans le workflow), publie data/ après chaque passage au lieu d'attendre la fin du job."""
+    if os.environ.get("GIT_PUSH") != "1":
+        return
+    run = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True)
+    run("add", "-A", "data")
+    if run("diff", "--cached", "--quiet").returncode == 0:
+        return
+    run("commit", "-q", "-m", "maj données")
+    for _ in range(3):
+        if run("pull", "--rebase", "-q").returncode == 0 and run("push", "-q").returncode == 0:
+            print("données publiées")
+            return
+        run("rebase", "--abort")
+        time.sleep(3)
+    print("push échoué, nouvel essai au prochain passage")
+
+
 if __name__ == "__main__":
     # LOOP_SECONDS > 0 : le script repasse toutes les POLL_SECONDS pendant cette durée (alertes plus rapides).
     # L'état est relu depuis data/ à chaque tour, donc aucune alerte en double.
@@ -225,6 +244,7 @@ if __name__ == "__main__":
     end = time.time() + loop
     while True:
         main()
+        git_push()
         if time.time() + poll >= end:
             break
         time.sleep(poll)

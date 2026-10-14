@@ -53,15 +53,13 @@ async function init() {
   }
   document.title = S.index.title || "SF6 Tracker";
   $("#site-title").textContent = (S.index.title || "SF6 Tracker").replace(/^SF6\s*/i, "") || "Tracker";
-  if (S.index.updated_at) $("#updated").textContent = "Mis à jour " + new Date(S.index.updated_at).toLocaleString("fr-FR");
+  renderUpdated();
   if (S.index.repo) {
     const a = $("#rv-edit");
     a.href = `https://github.com/${S.index.repo}/edit/main/config.json`;
     a.hidden = false;
   }
-  $("#players").innerHTML = S.index.players
-    .map((p) => `<button data-sid="${esc(p.sid)}">${esc(p.display || p.name)}</button>`)
-    .join("");
+  renderPlayers();
   $("#players").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-sid]");
     if (b) { location.hash = b.dataset.sid; }
@@ -69,7 +67,60 @@ async function init() {
   bindControls();
   window.addEventListener("hashchange", loadPlayerFromHash);
   await loadPlayerFromHash();
+  setInterval(refresh, REFRESH_MS);
+  setInterval(renderPlayers, 30 * 1000); // la bulle s'éteint d'elle-même après 10 min
 }
+
+// ------------------------------------------------------------------ présence (bulle verte)
+const ONLINE_SECONDS = 10 * 60;
+const REFRESH_MS = 60 * 1000;
+const lastMatchT = (p) => {
+  if (p.last_t) return p.last_t;
+  if (p.sid === S.sid && S.data?.matches?.[0]) return S.data.matches[0].t; // anciens index.json sans last_t
+  return null;
+};
+const isOnline = (p) => { const t = lastMatchT(p); return t != null && Date.now() / 1000 - t < ONLINE_SECONDS; };
+const ago = (t) => { const m = Math.max(0, Math.round((Date.now() / 1000 - t) / 60)); return m < 1 ? "à l'instant" : `il y a ${m} min`; };
+
+function renderPlayers() {
+  $("#players").innerHTML = S.index.players
+    .map((p) => {
+      const on = isOnline(p), t = lastMatchT(p);
+      const tip = on ? `En ligne · dernier match ${ago(t)}` : t ? `Dernier match le ${fmtDate(t)}` : "Aucun match enregistré";
+      return `<button data-sid="${esc(p.sid)}" class="${p.sid === S.sid ? "active" : ""}" title="${esc(tip)}">`
+        + `<span class="presence${on ? " on" : ""}" aria-label="${on ? "En ligne" : "Hors ligne"}"></span>${esc(p.display || p.name)}</button>`;
+    })
+    .join("");
+}
+
+function renderUpdated() {
+  if (S.index.updated_at) $("#updated").textContent = "Mis à jour " + new Date(S.index.updated_at).toLocaleString("fr-FR");
+}
+
+// Relit index.json chaque minute ; recharge le joueur affiché seulement s'il a de nouveaux matchs.
+async function refresh() {
+  if (document.hidden) return;
+  let idx;
+  try { idx = await getJson("data/index.json"); } catch { return; }
+  const before = S.index.players.find((p) => p.sid === S.sid);
+  S.index = idx;
+  const after = idx.players.find((p) => p.sid === S.sid);
+  renderPlayers();
+  renderUpdated();
+  if (!after || (before && before.last_t === after.last_t && before.last24h?.n === after.last24h?.n)) return;
+  try {
+    const data = await getJson(`data/players/${S.sid}.json`);
+    if (data.matches?.[0]?.id === S.data.matches?.[0]?.id) return;
+    S.data = data;
+    const keep = { pg: $("#pg-char").value, hi: $("#hi-char").value };
+    setupCharSelects();
+    if ([...$("#pg-char").options].some((o) => o.value === keep.pg)) $("#pg-char").value = keep.pg;
+    $("#hi-char").value = keep.hi;
+    renderProfile();
+    showTab(S.tab);
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S.index) refresh(); });
 
 async function loadPlayerFromHash() {
   const sids = S.index.players.map((p) => p.sid);
@@ -84,6 +135,7 @@ async function loadPlayerFromHash() {
   }
   S.histLimit = 100;
   S.rival = null;
+  renderPlayers();
   setupCharSelects();
   renderProfile();
   showTab(S.tab);
