@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SF6 Tracker</title>
+<style>
+:root{--bg:#f6f5f2;--fg:#1c1b1a;--mut:#77736c;--lp:#d9541e;--mr:#1f6f8b;--card:#fff;--line:#ddd8cf}
+@media(prefers-color-scheme:dark){:root{--bg:#16181d;--fg:#ecebe7;--mut:#9a9aa3;--lp:#ff7a45;--mr:#4cc3e6;--card:#1f2229;--line:#343842}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 "Barlow Condensed",system-ui,sans-serif}
+main{max-width:900px;margin:0 auto;padding:24px 16px}
+h1{font-size:2.2rem;margin:0 0 16px;letter-spacing:.02em}
+.bar{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+select,input{background:var(--card);color:var(--fg);border:1px solid var(--line);padding:8px 10px;font:inherit;border-radius:4px}
+label{color:var(--mut);display:flex;flex-direction:column;font-size:.85rem}
+.chart{background:var(--card);border:1px solid var(--line);padding:12px;margin-bottom:16px;border-radius:4px}
+.chart h2{margin:0 0 6px;font-size:1.1rem}
+svg{width:100%;height:220px;display:block}
+.empty{color:var(--mut);padding:40px 0;text-align:center}
+</style></head><body><main>
+<h1>SF6 Tracker</h1>
+<div class="bar">
+ <label>Joueur<select id="p"></select></label>
+ <label>Début<input type="date" id="a"></label>
+ <label>Fin<input type="date" id="b"></label>
+</div>
+<div class="chart"><h2>League Points</h2><svg id="c1"></svg></div>
+<div class="chart"><h2>Master Rating</h2><svg id="c2"></svg></div>
+<script>
+let H={};
+const $=id=>document.getElementById(id);
+function draw(svg,pts,key,color){
+  const W=800,Hh=220,m=36,el=$(svg);el.setAttribute("viewBox",`0 0 ${W} ${Hh}`);
+  pts=pts.filter(d=>d[key]!=null&&d[key]>0);
+  if(pts.length<2){el.innerHTML=`<text x="${W/2}" y="${Hh/2}" text-anchor="middle" fill="var(--mut)">Pas assez de données</text>`;return}
+  const xs=pts.map(d=>d.t),ys=pts.map(d=>d[key]);
+  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys)||1;
+  const X=t=>m+(t-x0)/(x1-x0||1)*(W-2*m), Y=v=>Hh-m-(v-y0)/(y1-y0||1)*(Hh-2*m);
+  el.innerHTML=`<polyline fill="none" stroke="${color}" stroke-width="2.5" points="${pts.map(d=>X(d.t)+","+Y(d[key])).join(" ")}"/>
+  <text x="4" y="${Y(y1)+4}" fill="var(--mut)" font-size="12">${y1}</text>
+  <text x="4" y="${Y(y0)+4}" fill="var(--mut)" font-size="12">${y0}</text>`;
+}
+function render(){
+  const name=$("p").value,a=$("a").value?Date.parse($("a").value)/1000:0,
+        b=$("b").value?Date.parse($("b").value)/1000+86400:Infinity;
+  const pts=(H[name]||[]).filter(d=>d.t>=a&&d.t<=b);
+  draw("c1",pts,"lp",getComputedStyle(document.documentElement).getPropertyValue("--lp"));
+  draw("c2",pts,"mr",getComputedStyle(document.documentElement).getPropertyValue("--mr"));
+}
+fetch("history.json").then(r=>r.json()).then(d=>{H=d;
+  $("p").innerHTML=Object.keys(H).map(n=>`<option>${n}</option>`).join("");render()})
+ .catch(()=>{document.querySelector("main").insertAdjacentHTML("beforeend",'<p class="empty">history.json introuvable : lance monitor.py dans le même dossier.</p>')});
+["p","a","b"].forEach(i=>$(i).addEventListener("input",render));
+</script></main></body></html>
