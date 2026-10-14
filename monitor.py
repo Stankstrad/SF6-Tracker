@@ -8,6 +8,7 @@ from pathlib import Path
 
 BASE = "https://www.streetfighter.com/6/buckler"
 DATA, PL = Path("data"), Path("data/players")
+BACKFILL = {"on": os.environ.get("BACKFILL") == "1"}  # désactivé après le 1er passage
 LEAGUES = ["Rookie", "Iron", "Bronze", "Silver", "Gold", "Platinum", "Diamond"]
 
 
@@ -30,7 +31,9 @@ def get(url):
         raise RuntimeError(f"HTTP {e.code} | server={e.headers.get('server')} | {body}")
 
 
-def battlelog(sid, pages=1):
+def battlelog(sid, pages=1, known=None):
+    """Lit jusqu'à `pages` pages ; s'arrête dès qu'une page contient un match déjà connu
+    (comble ainsi les trous après une panne, sans requêtes inutiles en temps normal)."""
     html = get(f"{BASE}/en/profile/{sid}/battlelog")
     build = re.search(r'"buildId":"([^"]+)"', html).group(1)
     out = []
@@ -38,7 +41,7 @@ def battlelog(sid, pages=1):
         data = get(f"{BASE}/_next/data/{build}/en/profile/{sid}/battlelog.json?page={p}&sid={sid}")
         page = json.loads(data)["pageProps"].get("replay_list", [])
         out += page
-        if len(page) < 10:
+        if len(page) < 10 or (known and any(str(r.get("replay_id")) in known for r in page)):
             break
         time.sleep(1)
     return out
@@ -157,12 +160,12 @@ def dump(path, obj):
 
 def main():
     C = json.loads(Path("config.json").read_text())
-    A = {"rivals": True, "ranked_gap_minutes": 30, **C.get("alerts", {})}
+    A = {"rivals": True, "ranked_gap_minutes": 30, "max_alert_age_minutes": 20, **C.get("alerts", {})}
     max_pages, keep = C.get("max_pages", 10), C.get("max_matches_stored", 5000)
     rivals = [{"sid": str(r["sid"]), "name": r.get("name", "")} for r in C.get("rivals", [])]
     rival_sids = {r["sid"] for r in rivals}
     PL.mkdir(parents=True, exist_ok=True)
-    index_players, now = [], time.time()
+    index_players, now, errors = [], time.time(), 0
 
     for pl in C["players"]:
         name, sid = pl["name"], str(pl["sid"])
@@ -170,12 +173,14 @@ def main():
         old = json.loads(f.read_text()) if f.exists() else None
         stored = old["matches"] if old else []
         first = old is None
+        known = {m["id"] for m in stored}
         try:
-            reps = battlelog(sid, max_pages if first else 1)
+            # BACKFILL=1 : relit tout le battle log disponible (100 derniers matchs chez Buckler).
+            reps = battlelog(sid, max_pages, None if (first or BACKFILL["on"]) else known)
         except Exception as e:
             print(f"[{name}] erreur : {e}")
+            errors += 1
             reps = []
-        known = {m["id"] for m in stored}
         new = []
         for r in reps:
             if str(r.get("replay_id")) in known:
@@ -192,7 +197,8 @@ def main():
             dump(f, {"profile": make_profile(matches, prof_name or name), "matches": matches})
             if not first:
                 ids = {m["id"] for m in new}
-                for m in list(reversed([x for x in matches if x["id"] in ids]))[-10:]:
+                fresh = [x for x in matches if x["id"] in ids and x["t"] >= now - A["max_alert_age_minutes"] * 60]
+                for m in list(reversed(fresh))[-10:]:
                     i = matches.index(m)
                     prev = next((x for x in matches[i + 1:] if x["mode"] == "Ranked"), None)
                     try:
@@ -217,6 +223,7 @@ def main():
     prev_idx = json.loads(ip.read_text()) if ip.exists() else {}
     if {k: v for k, v in prev_idx.items() if k != "updated_at"} != idx:
         dump(ip, {**idx, "updated_at": datetime.now(timezone.utc).isoformat()})
+    return errors == len(C["players"])  # True = Buckler n'a répondu pour personne
 
 
 def git_push():
@@ -243,8 +250,12 @@ if __name__ == "__main__":
     loop, poll = int(os.environ.get("LOOP_SECONDS", 0)), int(os.environ.get("POLL_SECONDS", 45))
     end = time.time() + loop
     while True:
-        main()
+        all_failed = main()
+        BACKFILL["on"] = False
         git_push()
         if time.time() + poll >= end:
             break
         time.sleep(poll)
+    if all_failed:
+        # Fait passer le job en rouge dans Actions au lieu d'un faux « succès ».
+        raise SystemExit("ÉCHEC : Buckler a refusé toutes les requêtes (cookie BUCKLER_COOKIE expiré ou accès bloqué).")
