@@ -1,6 +1,14 @@
 {
   "players": [
-    { "name": "Dims", "sid": "2548871535" },
+    { "name": "Bolo", "sid": "3872346330" },
+    { "name": "Mochi", "sid": "1477708230" },
+    { "name": "Dewara", "sid": "1233211005" },
+    { "name": "Momo", "sid": "4028210983" },
+    { "name": "Tommy", "sid": "3747909283" },
+    { "name": "Tooru", "sid": "2607002641" },
+    { "name": "Skull #1", "sid": "2206482274" },
+    { "name": "Skull #2", "sid": "3531741376" },
+    { "name": "Aizor", "sid": "1325312862" },
     { "name": "Crocodeal", "sid": "3332727306" },
     { "name": "Vezmo", "sid": "2084540645" }
   ]
